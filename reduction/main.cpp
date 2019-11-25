@@ -52,18 +52,7 @@ int main()
     std::vector<T> target_array(max_array_size);
     for(auto& v : target_array){
         v = (T)(rnd() & 0xFF);
-        // std::cout << v << ",";
     }
-    // std::cout << std::endl;
-
-    // const auto cpu_start = std::chrono::system_clock::now();
-    // const auto sum_gold = cpu::reduction_gold(target_array);
-    // const auto cpu_end = std::chrono::system_clock::now();
-
-    // const auto cpu_dur = cpu_end - cpu_start;
-
-    // std::cout << "CPU Elapsed time " << std::chrono::duration_cast<std::chrono::nanoseconds>(cpu_dur).count() / (1000.*1000.) << " ms: ";
-    // std::cout << sum_gold << std::endl;
 
     const auto cpu_times = cpu_bench(target_array, 100);
 

@@ -25,15 +25,3 @@ set(CMAKE_BUILD_TYPE Release)
 
 #cuda_add_executable(reduction ${SOURCES})
 add_executable(reduction ${SOURCES})
-
-
-#include(CTest)
-#enable_testing()
-#
-#add_executable(reduction main.cpp)
-#
-#set(CPACK_PROJECT_NAME ${PROJECT_NAME})
-#set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
-#
-#include(CPack)
-#
