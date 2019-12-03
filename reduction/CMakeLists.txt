@@ -23,5 +23,5 @@ file(GLOB SOURCES "*.cpp")
 # make release version
 set(CMAKE_BUILD_TYPE Release)
 
-#cuda_add_executable(reduction ${SOURCES})
-add_executable(reduction ${SOURCES})
+cuda_add_executable(reduction ${SOURCES})
+#add_executable(reduction ${SOURCES})
