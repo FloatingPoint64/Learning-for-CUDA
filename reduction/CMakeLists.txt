@@ -11,17 +11,24 @@ endif()
 
 # include directory
 include_directories($CUDA_INCLUDE_DIRS)
+
 include_directories(./)
+include_directories(./gpu)
 
 # set CUDA options
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -O2")
-set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -std=c++14 -O2 -gencode arch=compute_61,code=sm_61 --expt-relaxed-constexpr -lineinfo --ptxas-option=-v")
+set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -std=c++14 -O2 -gencode arch=compute_61,code=sm_61 --expt-relaxed-constexpr -lineinfo")
 
 # sources
-file(GLOB SOURCES "*.cpp")
+file(GLOB CPU_SOURCES "*.cpp")
+file(GLOB GPU_SOURCES "gpu/*.cu")
 
 # make release version
 set(CMAKE_BUILD_TYPE Release)
 
-cuda_add_executable(reduction ${SOURCES})
+cuda_add_executable(reduction main.cpp ${CPU_SOURCES} ${GPU_SOURCES})
 #add_executable(reduction ${SOURCES})
+
+target_compile_features(reduction PRIVATE cxx_range_for)
+
+target_link_libraries(reduction "${CUDA_LIBRARIES}")

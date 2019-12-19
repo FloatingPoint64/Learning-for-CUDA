@@ -7,11 +7,14 @@
 
 #include <cuda_runtime.h>
 
+#include "helper_cuda.h"
+
 #include "reduction_cpu.hpp"
+#include "gpu/reduction_gpu.h"
 
 
 template<class T>
-std::vector<double> cpu_bench(
+std::vector<double> benchmark_cpu(
     const std::vector<T>& array,
     std::vector<T>& sum_golds,
     const size_t& num_loop=100
@@ -31,6 +34,56 @@ std::vector<double> cpu_bench(
         sum_golds.push_back(sum_gold);
         calc_times.push_back(cpu_dur_ms);
     }
+
+    return calc_times;
+}
+
+
+template<class T>
+std::vector<double> benchmark_gpu(
+    const std::vector<T>& array,
+    std::vector<T>& sum_results,
+    const size_t& num_loop=100
+    )
+{
+    const size_t bytes = array.size() * sizeof(T);
+
+    // GPU params setup
+    int num_blocks = 256;
+    int num_threads = 32;
+    // get
+
+    // GPU Global Memory setup
+    T* d_iarray;
+    T* d_oarray;
+
+    checkCudaErrors(cudaMalloc((void **)&d_iarray, bytes));
+    checkCudaErrors(cudaMalloc((void **)&d_oarray, num_blocks*sizeof(T)));
+
+    std::vector<double> calc_times;
+
+    for(size_t i = 0; i < num_loop; ++i){
+        const auto cpu_start = std::chrono::system_clock::now();
+
+        checkCudaErrors(cudaMemcpy(d_iarray, &array[0], bytes, cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpy(d_oarray, &array[0], num_blocks*sizeof(T), cudaMemcpyHostToDevice));
+
+        reduction_gpu(bytes, d_iarray, d_oarray, num_threads, num_blocks);
+
+        const auto cpu_end = std::chrono::system_clock::now();
+
+        const auto cpu_dur = cpu_end - cpu_start;
+
+        const auto cpu_dur_ms = std::chrono::duration_cast<std::chrono::nanoseconds>(cpu_dur).count() / (1000.*1000.);
+
+        int sum_result = 0;
+
+        sum_results.push_back(sum_result);
+        calc_times.push_back(cpu_dur_ms);
+    }
+
+    checkCudaErrors(cudaFree(d_iarray));
+    checkCudaErrors(cudaFree(d_oarray));
 
     return calc_times;
 }
@@ -64,7 +117,7 @@ int main()
 
     std::vector<T> sum_golds;
     sum_golds.reserve(100);
-    const auto cpu_times = cpu_bench(target_array, sum_golds, 100);
+    const auto cpu_times = benchmark_cpu(target_array, sum_golds, 100);
     const auto sum_gold = sum_golds[0];
     for(size_t i = 1; i < sum_golds.size(); ++i){
         if(std::abs(sum_golds[i] - sum_gold) > __DBL_EPSILON__){
@@ -80,11 +133,26 @@ int main()
 
     size_t bytes = max_array_size * sizeof(T);
 
-    // GPU Global Memory setup
-    T *g_iarray;
-    T *g_oarray;
+    // Call benchmark_gpu fn
 
-    checkCudaError();
+    // GPU params setup
+    int num_blocks = 256;
+    int num_threads = 32;
+    // get
+
+    // GPU Global Memory setup
+    T* d_iarray;
+    T* d_oarray;
+
+    checkCudaErrors(cudaMalloc((void **)&d_iarray, bytes));
+    checkCudaErrors(cudaMalloc((void **)&d_oarray, num_blocks*sizeof(T)));
+
+    checkCudaErrors(cudaMemcpy(d_iarray, &target_array[0], bytes, cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_oarray, &target_array[0], num_blocks*sizeof(T), cudaMemcpyHostToDevice));
+
+    reduction_gpu(bytes, d_iarray, d_oarray, num_threads, num_blocks);
+
+    checkCudaErrors(cudaFree(d_iarray));
 
     cudaDeviceReset();
     return 0;
