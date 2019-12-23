@@ -16,8 +16,8 @@ include_directories(./)
 include_directories(./gpu)
 
 # set CUDA options
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -O2")
-set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -std=c++14 -O2 -gencode arch=compute_61,code=sm_61 --expt-relaxed-constexpr -lineinfo")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2")
+set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -O2 -gencode arch=compute_61,code=sm_61 --expt-relaxed-constexpr -lineinfo")
 
 # sources
 file(GLOB CPU_SOURCES "*.cpp")

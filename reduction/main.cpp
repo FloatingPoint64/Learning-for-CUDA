@@ -2,6 +2,7 @@
 #include <vector>
 #include <random>
 #include <algorithm>
+#include <numeric>
 
 #include <chrono>
 
@@ -11,6 +12,62 @@
 
 #include "reduction_cpu.hpp"
 #include "gpu/reduction_gpu.h"
+
+
+
+unsigned int nextPow2(unsigned int x)
+{
+    --x;
+
+    x |= x >> 1;
+    x |= x >> 2;
+    x |= x >> 4;
+    x |= x >> 8;
+    x |= x >> 16;
+
+    return ++x;
+}
+
+
+void getNumBlocksAndThreads(int whichKernel, int n, int maxBlocks, int maxThreads, int& blocks, int& threads)
+{
+
+    //get device capability, to avoid block/grid size exceed the upper bound
+    cudaDeviceProp prop;
+    int device;
+    checkCudaErrors(cudaGetDevice(&device));
+    checkCudaErrors(cudaGetDeviceProperties(&prop, device));
+
+    if (whichKernel < 3)
+    {
+        threads = (n < maxThreads) ? nextPow2(n) : maxThreads;
+        blocks = (n + threads - 1) / threads;
+    }
+    else
+    {
+        threads = (n < maxThreads * 2) ? nextPow2((n + 1) / 2) : maxThreads;
+        blocks = (n + (threads * 2 - 1)) / (threads * 2);
+    }
+
+    if ((float)threads * blocks > (float)prop.maxGridSize[0] * prop.maxThreadsPerBlock)
+    {
+        printf("n is too large, please choose a smaller number!\n");
+    }
+
+    if (blocks > prop.maxGridSize[0])
+    {
+        printf("Grid size <%d> exceeds the device capability <%d>, set block size as %d (original %d)\n",
+            blocks, prop.maxGridSize[0], threads * 2, threads);
+
+        blocks /= 2;
+        threads *= 2;
+    }
+
+    if (whichKernel == 6)
+    {
+        blocks = std::min(maxBlocks, blocks);
+    }
+}
 
 
 template<class T>
@@ -46,40 +103,46 @@ std::vector<double> benchmark_gpu(
     const size_t& num_loop=100
     )
 {
-    const size_t bytes = array.size() * sizeof(T);
+    const size_t i_bytes = array.size() * sizeof(T);
 
     // GPU params setup
-    int num_blocks = 256;
-    int num_threads = 32;
-    // get
+    int num_blocks = 0;
+    int num_threads = 0;
+    getNumBlocksAndThreads(0, array.size(), 64, 256, num_blocks, num_threads);
+
+    const size_t o_bytes = num_blocks * sizeof(T);
 
     // GPU Global Memory setup
     T* d_iarray;
     T* d_oarray;
 
-    checkCudaErrors(cudaMalloc((void **)&d_iarray, bytes));
-    checkCudaErrors(cudaMalloc((void **)&d_oarray, num_blocks*sizeof(T)));
+    checkCudaErrors(cudaMalloc((void **)&d_iarray, i_bytes));
+    checkCudaErrors(cudaMalloc((void **)&d_oarray, o_bytes));
 
     std::vector<double> calc_times;
 
     for(size_t i = 0; i < num_loop; ++i){
-        const auto cpu_start = std::chrono::system_clock::now();
+        std::vector<T> block_res(num_blocks, 0);
 
-        checkCudaErrors(cudaMemcpy(d_iarray, &array[0], bytes, cudaMemcpyHostToDevice));
-        checkCudaErrors(cudaMemcpy(d_oarray, &array[0], num_blocks*sizeof(T), cudaMemcpyHostToDevice));
+        const auto start_time = std::chrono::system_clock::now();
 
-        reduction_gpu(bytes, d_iarray, d_oarray, num_threads, num_blocks);
+        checkCudaErrors(cudaMemcpy(d_iarray, &array[0], i_bytes, cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpy(d_oarray, &array[0], o_bytes, cudaMemcpyHostToDevice));
 
-        const auto cpu_end = std::chrono::system_clock::now();
+        reduction_gpu(i_bytes, d_iarray, d_oarray, num_threads, num_blocks);
 
-        const auto cpu_dur = cpu_end - cpu_start;
+        checkCudaErrors(cudaMemcpy(&block_res[0], d_oarray, o_bytes, cudaMemcpyDeviceToHost));
 
-        const auto cpu_dur_ms = std::chrono::duration_cast<std::chrono::nanoseconds>(cpu_dur).count() / (1000.*1000.);
+        const auto end_time = std::chrono::system_clock::now();
 
-        int sum_result = 0;
+        const auto dur_time = end_time - start_time;
+
+        const auto dur_time_ms = std::chrono::duration_cast<std::chrono::nanoseconds>(dur_time).count() / (1000.*1000.);
+
+        T sum_result = std::accumulate(std::begin(block_res), std::end(block_res), (T)0);
 
         sum_results.push_back(sum_result);
-        calc_times.push_back(cpu_dur_ms);
+        calc_times.push_back(dur_time_ms);
     }
 
     checkCudaErrors(cudaFree(d_iarray));
@@ -104,7 +167,10 @@ int main()
 {
     using T = int;
 
+    const size_t num_loop = 100;
+
     const size_t max_array_size = 1 << 24;
+    //const size_t max_array_size = 32;
 
     std::cout << "Max array size: " << max_array_size << std::endl;
 
@@ -113,46 +179,44 @@ int main()
     std::vector<T> target_array(max_array_size);
     for(auto& v : target_array){
         v = (T)(rnd() & 0xFF);
+        //std::cout << v << ",";
     }
+    //std::cout << std::endl;
 
     std::vector<T> sum_golds;
-    sum_golds.reserve(100);
-    const auto cpu_times = benchmark_cpu(target_array, sum_golds, 100);
+    sum_golds.reserve(num_loop);
+    const auto cpu_times = benchmark_cpu(target_array, sum_golds, num_loop);
     const auto sum_gold = sum_golds[0];
-    for(size_t i = 1; i < sum_golds.size(); ++i){
-        if(std::abs(sum_golds[i] - sum_gold) > __DBL_EPSILON__){
+    for(const auto& v : sum_golds){
+        if(std::abs(v - sum_gold) > std::numeric_limits<T>::epsilon()){
             std::cout << "ERROR: sum_gold of CPU." << std::endl;
             return -1;
         }
     }
+    std::cout << "CPU result is " << sum_gold << std::endl;
 
     std::cout << "CPU time(Median) " << calc_time_median(cpu_times) << " ms" << std::endl;
 
     // GPU Benchmark
     cudaSetDevice(0);
 
-    size_t bytes = max_array_size * sizeof(T);
+    size_t cound_missmatches = 0;
 
-    // Call benchmark_gpu fn
+    std::vector<T> sum_results;
+    sum_results.reserve(num_loop);
 
-    // GPU params setup
-    int num_blocks = 256;
-    int num_threads = 32;
-    // get
+    const auto gpu_times = benchmark_gpu(target_array, sum_results, num_loop);
 
-    // GPU Global Memory setup
-    T* d_iarray;
-    T* d_oarray;
+    for(const auto& v : sum_results){
+        if(std::abs(v - sum_gold) > std::numeric_limits<T>::epsilon()){
+            ++cound_missmatches;
+        }
+    }
 
-    checkCudaErrors(cudaMalloc((void **)&d_iarray, bytes));
-    checkCudaErrors(cudaMalloc((void **)&d_oarray, num_blocks*sizeof(T)));
+    std::cout << "GPU result is " << sum_results[0] << std::endl;
 
-    checkCudaErrors(cudaMemcpy(d_iarray, &target_array[0], bytes, cudaMemcpyHostToDevice));
-    checkCudaErrors(cudaMemcpy(d_oarray, &target_array[0], num_blocks*sizeof(T), cudaMemcpyHostToDevice));
-
-    reduction_gpu(bytes, d_iarray, d_oarray, num_threads, num_blocks);
-
-    checkCudaErrors(cudaFree(d_iarray));
+    std::cout << "GPU: The number of mismatch results is " << cound_missmatches << std::endl;
+    std::cout << "GPU time(Median) " << calc_time_median(gpu_times) << " ms" << std::endl;
 
     cudaDeviceReset();
     return 0;

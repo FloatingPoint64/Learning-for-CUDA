@@ -36,7 +36,7 @@ void reduction_gpu(unsigned long long array_size, int* d_iarray, int* d_oarray, 
     dim3 dim_block(threads, 1, 1);
     dim3 dim_grid(blocks, 1, 1);
 
-    int shared_mem_size = threads*sizeof(int);
+    int shared_mem_size = threads <= 32 ? 2*threads*sizeof(int) : threads*sizeof(int);
 
     reduction_lvl0<<<dim_grid, dim_block, shared_mem_size>>>(d_iarray, d_oarray, array_size);
 
