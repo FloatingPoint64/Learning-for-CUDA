@@ -120,7 +120,7 @@ int main()
     const auto cpu_times = benchmark_cpu(target_array, sum_golds, 100);
     const auto sum_gold = sum_golds[0];
     for(size_t i = 1; i < sum_golds.size(); ++i){
-        if(std::abs(sum_golds[i] - sum_gold) > __DBL_EPSILON__){
+        if(std::abs(sum_golds[i] - sum_gold) > 1.0e-8){
             std::cout << "ERROR: sum_gold of CPU." << std::endl;
             return -1;
         }
