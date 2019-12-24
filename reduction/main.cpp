@@ -119,10 +119,25 @@ std::vector<double> benchmark_gpu(
     checkCudaErrors(cudaMalloc((void **)&d_iarray, i_bytes));
     checkCudaErrors(cudaMalloc((void **)&d_oarray, o_bytes));
 
-    std::vector<double> calc_times;
+    // Warmup
+    for(size_t i = 0; i < 10; ++i){
+        std::vector<T> block_res(num_blocks, 0);
+        checkCudaErrors(cudaMemset(d_iarray, 0, i_bytes));
+        checkCudaErrors(cudaMemset(d_oarray, 0, o_bytes));
 
+        checkCudaErrors(cudaMemcpy(d_iarray, &array[0], i_bytes, cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpy(d_oarray, &array[0], o_bytes, cudaMemcpyHostToDevice));
+
+        reduction_gpu(i_bytes, d_iarray, d_oarray, num_threads, num_blocks);
+
+        checkCudaErrors(cudaMemcpy(&block_res[0], d_oarray, o_bytes, cudaMemcpyDeviceToHost));
+    }
+
+    std::vector<double> calc_times;
     for(size_t i = 0; i < num_loop; ++i){
         std::vector<T> block_res(num_blocks, 0);
+        checkCudaErrors(cudaMemset(d_iarray, 0, i_bytes));
+        checkCudaErrors(cudaMemset(d_oarray, 0, o_bytes));
 
         const auto start_time = std::chrono::system_clock::now();
 
@@ -133,16 +148,18 @@ std::vector<double> benchmark_gpu(
 
         checkCudaErrors(cudaMemcpy(&block_res[0], d_oarray, o_bytes, cudaMemcpyDeviceToHost));
 
+        T sum_result = std::accumulate(std::begin(block_res), std::end(block_res), (T)0);
+
         const auto end_time = std::chrono::system_clock::now();
 
         const auto dur_time = end_time - start_time;
 
         const auto dur_time_ms = std::chrono::duration_cast<std::chrono::nanoseconds>(dur_time).count() / (1000.*1000.);
 
-        T sum_result = std::accumulate(std::begin(block_res), std::end(block_res), (T)0);
-
         sum_results.push_back(sum_result);
         calc_times.push_back(dur_time_ms);
+
+        std::cout << dur_time_ms << " [ms]" << std::endl;
     }
 
     checkCudaErrors(cudaFree(d_iarray));
